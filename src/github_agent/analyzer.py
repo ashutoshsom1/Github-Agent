@@ -2,7 +2,12 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from enum import Enum
-from .api_client import GitHubAPIClient
+import sys
+import os
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from github_agent.api_client import GitHubAPIClient
 
 class ContributionStatus(Enum):
     ACTIVELY_ACCEPTING = "actively_accepting"

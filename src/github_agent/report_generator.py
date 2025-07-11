@@ -2,7 +2,12 @@ from typing import List, Dict
 from datetime import datetime
 import json
 from jinja2 import Template
-from .analyzer import RepositoryAnalysis, ContributionStatus
+import sys
+import os
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from github_agent.analyzer import RepositoryAnalysis, ContributionStatus
 
 class ReportGenerator:
     def __init__(self):

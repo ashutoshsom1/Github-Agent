@@ -5,9 +5,13 @@ from email.mime.base import MIMEBase
 from email import encoders
 import zipfile
 import os
+import sys
 from typing import Dict, List
 from datetime import datetime
-from ..config.settings import settings
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from config.settings import settings
 
 class EmailSender:
     def __init__(self):

@@ -4,7 +4,12 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import json
 import time
-from ..config.settings import settings
+import sys
+import os
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from config.settings import settings
 
 class GitHubAPIClient:
     def __init__(self):

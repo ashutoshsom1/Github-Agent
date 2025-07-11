@@ -1,7 +1,13 @@
-from .api_client import GitHubAPIClient
-from .analyzer import RepositoryAnalyzer
-from .report_generator import ReportGenerator
-from .email_sender import EmailSender
+import sys
+import os
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from github_agent.api_client import GitHubAPIClient
+from github_agent.analyzer import RepositoryAnalyzer
+from github_agent.report_generator import ReportGenerator
+from github_agent.email_sender import EmailSender
 
 class GitHubAnalysisAgent:
     def __init__(self):
