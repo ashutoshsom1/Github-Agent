@@ -49,9 +49,12 @@ class RepositoryAnalyzer:
     async def analyze_repository(self, repo_data: Dict) -> RepositoryAnalysis:
         """Analyze a repository for contribution readiness"""
         
-        async with self.api_client as client:
+        # Ensure API client session is ready
+        await self.api_client._ensure_session()
+        
+        try:
             # Get detailed repository information
-            details = await client.get_repository_details(repo_data)
+            details = await self.api_client.get_repository_details(repo_data)
             repo = details["repo"]
             issues = details["issues"]
             commits = details["commits"]
@@ -61,6 +64,9 @@ class RepositoryAnalyzer:
             analysis = await self._perform_analysis(repo, issues, commits, contributors)
             
             return analysis
+        finally:
+            # Clean up session
+            await self.api_client._close_session()
     
     async def _perform_analysis(self, repo: Dict, issues: List, commits: List, contributors: List) -> RepositoryAnalysis:
         """Perform comprehensive repository analysis"""
@@ -69,11 +75,11 @@ class RepositoryAnalyzer:
         name = repo['name']
         
         # Check for contribution files
-        async with self.api_client as client:
-            has_contributing = await client.check_file_exists(owner, name, "CONTRIBUTING.md")
-            has_coc = await client.check_file_exists(owner, name, "CODE_OF_CONDUCT.md")
-            has_issue_template = await client.check_file_exists(owner, name, ".github/ISSUE_TEMPLATE")
-            has_pr_template = await client.check_file_exists(owner, name, ".github/PULL_REQUEST_TEMPLATE.md")
+        await self.api_client._ensure_session()
+        has_contributing = await self.api_client.check_file_exists(owner, name, "CONTRIBUTING.md")
+        has_coc = await self.api_client.check_file_exists(owner, name, "CODE_OF_CONDUCT.md")
+        has_issue_template = await self.api_client.check_file_exists(owner, name, ".github/ISSUE_TEMPLATE")
+        has_pr_template = await self.api_client.check_file_exists(owner, name, ".github/PULL_REQUEST_TEMPLATE.md")
         
         # Analyze issues
         good_first_issues = self._count_labeled_issues(issues, ["good-first-issue", "good first issue"])
@@ -113,7 +119,7 @@ class RepositoryAnalyzer:
             license=repo.get('license', {}).get('name') if repo.get('license') else None,
             contribution_status=contribution_status,
             contribution_score=contribution_score,
-            last_activity=datetime.fromisoformat(repo.get('updated_at', '').replace('Z', '+00:00')),
+            last_activity=self._parse_datetime(repo.get('updated_at', '')),
             open_issues=repo.get('open_issues_count', 0),
             good_first_issues=good_first_issues,
             help_wanted_issues=help_wanted_issues,
@@ -270,3 +276,13 @@ class RepositoryAnalyzer:
             return "Low Activity"
         else:
             return "Inactive"
+    
+    def _parse_datetime(self, date_str: str) -> datetime:
+        """Safely parse datetime string"""
+        try:
+            if date_str:
+                return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            else:
+                return datetime.now()
+        except ValueError:
+            return datetime.now()

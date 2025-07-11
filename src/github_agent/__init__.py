@@ -20,23 +20,31 @@ class GitHubAnalysisAgent:
         """Main method to analyze repositories and send reports"""
         print(f"🔍 Searching for repositories with keyword: {keyword}")
         
-        # Fetch repositories
-        repositories = await self.api_client.search_repositories(keyword)
-        
-        print(f"📊 Found {len(repositories)} repositories to analyze")
-        
-        # Analyze each repository
-        analyzed_repos = []
-        for repo in repositories:
-            analysis = await self.analyzer.analyze_repository(repo)
-            analyzed_repos.append(analysis)
-        
-        # Generate reports
-        reports = self.report_generator.generate_reports(analyzed_repos)
-        
-        # Send email with reports
-        await self.email_sender.send_reports(reports, recipient_email)
-        
-        print(f"✅ Analysis complete! Reports sent to {recipient_email}")
-        
-        return analyzed_repos
+        try:
+            # Ensure API client session is ready
+            await self.api_client._ensure_session()
+            
+            # Fetch repositories
+            repositories = await self.api_client.search_repositories(keyword)
+            
+            print(f"📊 Found {len(repositories)} repositories to analyze")
+            
+            # Analyze each repository
+            analyzed_repos = []
+            for repo in repositories:
+                analysis = await self.analyzer.analyze_repository(repo)
+                analyzed_repos.append(analysis)
+            
+            # Generate reports
+            reports = self.report_generator.generate_reports(analyzed_repos)
+            
+            # Send email with reports
+            await self.email_sender.send_reports(reports, recipient_email)
+            
+            print(f"✅ Analysis complete! Reports sent to {recipient_email}")
+            
+            return analyzed_repos
+            
+        finally:
+            # Clean up session
+            await self.api_client._close_session()

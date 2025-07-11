@@ -12,6 +12,10 @@ import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -60,18 +64,35 @@ def check_environment() -> bool:
         'EMAIL_PASSWORD'
     ]
     
+    # Check if .env file exists
+    if not os.path.exists('.env'):
+        console.print("[bold red]❌ .env file not found![/bold red]")
+        console.print("[yellow]Please create a .env file based on .env.example[/yellow]")
+        return False
+    
+    console.print("[green]✅ .env file found, checking variables...[/green]")
+    
     missing_vars = []
     for var in required_vars:
-        if not os.getenv(var):
+        value = os.getenv(var)
+        if not value:
             missing_vars.append(var)
+        else:
+            # Show partial value for confirmation (mask sensitive data)
+            if 'PASSWORD' in var or 'TOKEN' in var:
+                masked_value = '*' * len(value) if len(value) > 4 else '****'
+                console.print(f"[green]✅ {var}:[/green] {masked_value}")
+            else:
+                console.print(f"[green]✅ {var}:[/green] {value}")
     
     if missing_vars:
         console.print("[bold red]❌ Missing required environment variables:[/bold red]")
         for var in missing_vars:
             console.print(f"  • {var}")
-        console.print("\n[yellow]Please create a .env file with these variables.[/yellow]")
+        console.print("\n[yellow]Please update your .env file with these variables.[/yellow]")
         return False
     
+    console.print("[green]✅ All environment variables found![/green]")
     return True
 
 async def run_analysis(keyword: str, email: str):

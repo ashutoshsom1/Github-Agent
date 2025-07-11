@@ -225,12 +225,40 @@ class EmailSender:
     
     async def _send_email(self, msg: MIMEMultipart, recipient_email: str):
         """Send the email message"""
-        server = smtplib.SMTP(self.smtp_host, self.smtp_port)
-        
-        if self.use_tls:
-            server.starttls()
-        
-        server.login(self.username, self.password)
-        text = msg.as_string()
-        server.sendmail(self.username, recipient_email, text)
-        server.quit()
+        try:
+            print(f"📡 Connecting to SMTP server: {self.smtp_host}:{self.smtp_port}")
+            server = smtplib.SMTP(self.smtp_host, self.smtp_port)
+            
+            print("🔐 Starting TLS encryption...")
+            if self.use_tls:
+                server.starttls()
+            
+            print(f"🔑 Authenticating with username: {self.username}")
+            server.login(self.username, self.password)
+            
+            print(f"📤 Sending email to: {recipient_email}")
+            text = msg.as_string()
+            server.sendmail(self.username, recipient_email, text)
+            server.quit()
+            
+            print("✅ Email sent successfully!")
+            
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"❌ SMTP Authentication Error: {e}")
+            print("💡 Troubleshooting tips:")
+            print("   1. Check if your password is correct")
+            print("   2. For Office 365, you may need an App Password")
+            print("   3. Check if 2FA is enabled on your account")
+            print("   4. Verify SMTP settings for your domain")
+            raise
+        except smtplib.SMTPRecipientsRefused as e:
+            print(f"❌ SMTP Recipients Refused: {e}")
+            print("💡 Check if the recipient email address is valid")
+            raise
+        except smtplib.SMTPServerDisconnected as e:
+            print(f"❌ SMTP Server Disconnected: {e}")
+            print("💡 Check your internet connection and SMTP server settings")
+            raise
+        except Exception as e:
+            print(f"❌ Unexpected email error: {e}")
+            raise

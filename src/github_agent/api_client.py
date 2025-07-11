@@ -18,22 +18,38 @@ class GitHubAPIClient:
         self.session = None
         self.rate_limit_remaining = 5000
         self.rate_limit_reset = time.time()
+        self._session_created = False
         
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession(
-            headers={
-                "Authorization": f"token {self.token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-        )
+        await self._ensure_session()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
+        await self._close_session()
+    
+    async def _ensure_session(self):
+        """Ensure session is created"""
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                headers={
+                    "Authorization": f"token {self.token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            self._session_created = True
+    
+    async def _close_session(self):
+        """Close session if it was created"""
+        if self.session and self._session_created:
             await self.session.close()
+            self.session = None
+            self._session_created = False
     
     async def _make_request(self, url: str, params: Optional[Dict] = None) -> Dict:
         """Make API request with rate limiting"""
+        # Ensure session is created
+        await self._ensure_session()
+        
         if self.rate_limit_remaining < 10 and time.time() < self.rate_limit_reset:
             wait_time = self.rate_limit_reset - time.time()
             print(f"⏳ Rate limit reached. Waiting {wait_time:.1f} seconds...")
@@ -46,8 +62,11 @@ class GitHubAPIClient:
             
             if response.status == 200:
                 return await response.json()
+            elif response.status == 404:
+                # File/resource not found - this is expected for some queries
+                return {}
             else:
-                print(f"❌ API request failed: {response.status}")
+                print(f"❌ API request failed: {response.status} for {url}")
                 return {}
     
     async def search_repositories(self, keyword: str, sort: str = "stars") -> List[Dict]:
@@ -102,7 +121,14 @@ class GitHubAPIClient:
         """Check if a specific file exists in the repository"""
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{file_path}"
         data = await self._make_request(url)
-        return bool(data.get('name'))
+        
+        # Handle both single files and directories
+        if isinstance(data, dict):
+            return bool(data.get('name'))
+        elif isinstance(data, list):
+            return len(data) > 0
+        else:
+            return False
     
     async def get_file_content(self, owner: str, repo: str, file_path: str) -> Optional[str]:
         """Get content of a specific file"""

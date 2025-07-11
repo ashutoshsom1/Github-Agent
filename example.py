@@ -18,28 +18,18 @@ async def example_usage():
     # Initialize the agent
     agent = GitHubAnalysisAgent()
     
-    # Example 1: Analyze machine learning repositories
+    # Example 1: Analyze machine learning repositories (small test)
     print("🔍 Analyzing machine learning repositories...")
     ml_analyses = await agent.analyze_repositories(
         keyword="machine learning",
-        recipient_email="your_email@example.com"
+        recipient_email="ashutoshsomvan@outlook.com"
     )
     
     # Print some results
     print(f"✅ Analyzed {len(ml_analyses)} machine learning repositories")
     
-    # Example 2: Analyze web development repositories
-    print("\n🔍 Analyzing web development repositories...")
-    web_analyses = await agent.analyze_repositories(
-        keyword="web development",
-        recipient_email="your_email@example.com"
-    )
-    
-    print(f"✅ Analyzed {len(web_analyses)} web development repositories")
-    
-    # Show top repositories from both analyses
-    all_analyses = ml_analyses + web_analyses
-    top_repos = sorted(all_analyses, key=lambda x: x.contribution_score, reverse=True)[:5]
+    # Show top repositories
+    top_repos = sorted(ml_analyses, key=lambda x: x.contribution_score, reverse=True)[:5]
     
     print("\n⭐ Top 5 repositories by contribution score:")
     for i, repo in enumerate(top_repos, 1):

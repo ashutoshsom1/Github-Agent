@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # GitHub API Configuration
     github_token: str
     github_api_url: str = "https://api.github.com"
-    max_repositories: int = 50
+    max_repositories: int = 10  # Reduced for testing
     min_stars: int = 100
     
     # Email Configuration
