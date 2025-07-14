@@ -28,6 +28,13 @@ A comprehensive tool that scans top GitHub repositories based on keywords, analy
 ![Email Report Detail 2](screenshots/reports/email_report_overview_2.png)
 *Comprehensive HTML reports delivered directly to your inbox*
 
+### Demo Video
+![Watch the demo video](screenshots/demo/github_agent_demo.gif)
+*Watch the demo video to see the agent in action!*
+
+## 📖 Table of Contents
+
+
 ## �🚀 Quick Start
 
 ### 1. Installation
