@@ -12,7 +12,23 @@ A comprehensive tool that scans top GitHub repositories based on keywords, analy
 - **🎯 Contribution Scoring**: Advanced algorithm to score contribution opportunities
 - **📱 Rich CLI Interface**: Beautiful command-line interface with progress tracking
 
-## 🚀 Quick Start
+## � Screenshots
+
+### CLI Interface in Action
+![CLI Interface](screenshots/cli/cli_running.png)
+*Beautiful command-line interface with real-time progress tracking*
+
+### Analysis Results
+![Analysis Summary](screenshots/results/summary_table.png)
+*Smart categorization of repositories by contribution readiness*
+
+### Email Reports
+![Email Report](screenshots/reports/email_report_overview.png)
+![Email Report Detail 1](screenshots/reports/email_report_overview_1.png)
+![Email Report Detail 2](screenshots/reports/email_report_overview_2.png)
+*Comprehensive HTML reports delivered directly to your inbox*
+
+## �🚀 Quick Start
 
 ### 1. Installation
 
