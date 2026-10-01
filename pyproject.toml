@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "github-agent-ai"
+version = "2.0.0"
+description = "Autonomous AI Open-Source Intelligence & Contribution Agent powered by Model Context Protocol (MCP) and LLM reasoning."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+keywords = [
+    "github",
+    "ai-agent",
+    "model-context-protocol",
+    "mcp",
+    "claude",
+    "open-source",
+    "developer-tools",
+    "automation"
+]
+authors = [
+    { name = "Ashutosh Somvanshi", email = "ashutoshsomvanshi247@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+dependencies = [
+    "aiohttp>=3.9.0",
+    "click>=8.1.0",
+    "jinja2>=3.1.2",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "rich>=13.7.0"
+]
+
+[project.optional-dependencies]
+ai = [
+    "anthropic>=0.25.0",
+    "openai>=1.20.0"
+]
+mcp = [
+    "mcp>=1.0.0"
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0"
+]
+
+[project.scripts]
+github-agent = "github_agent.cli:main"
+octo-agent = "github_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/github_agent", "src/config"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E741", "E402", "W291", "W293"]

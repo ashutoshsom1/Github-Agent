@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  github-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: github-agent-ai
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD:-}
+    volumes:
+      - ./reports:/app/reports
+    command: ["scan", "--keyword", "agentic-ai", "--output", "/app/reports/agentic_ai_report.md"]

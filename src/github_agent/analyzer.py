@@ -1,288 +1,233 @@
-from typing import Dict, List, Optional
-from datetime import datetime, timedelta
-from dataclasses import dataclass
-from enum import Enum
-import sys
-import os
-#tag 1024
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import logging
+from datetime import UTC, datetime
+
+from github_agent.ai_intelligence import AIIntelligenceEngine
 from github_agent.api_client import GitHubAPIClient
+from github_agent.models import (
+    ContributionDifficulty,
+    ContributionStatus,
+    IssueOpportunity,
+    RepositoryAnalysis,
+)
 
-class ContributionStatus(Enum):
-    ACTIVELY_ACCEPTING = "actively_accepting"
-    LIMITED_SCOPE = "limited_scope"
-    NOT_ACCEPTING = "not_accepting"
-    ARCHIVED_INACTIVE = "archived_inactive"
+logger = logging.getLogger(__name__)
 
-@dataclass
-class RepositoryAnalysis:
-    name: str
-    full_name: str
-    description: str
-    url: str
-    stars: int
-    forks: int
-    language: str
-    license: Optional[str]
-    contribution_status: ContributionStatus
-    contribution_score: float
-    last_activity: datetime
-    open_issues: int
-    good_first_issues: int
-    help_wanted_issues: int
-    recent_commits: int
-    contributors_count: int
-    has_contributing_guide: bool
-    has_code_of_conduct: bool
-    has_issue_templates: bool
-    has_pr_templates: bool
-    response_time_estimate: str
-    tech_stack: List[str]
-    setup_complexity: str
-    maintainer_activity: str
 
 class RepositoryAnalyzer:
-    def __init__(self):
-        self.api_client = GitHubAPIClient()
-    
-    async def analyze_repository(self, repo_data: Dict) -> RepositoryAnalysis:
-        """Analyze a repository for contribution readiness"""
-        
-        # Ensure API client session is ready
-        await self.api_client._ensure_session()
-        
+    """
+    Evaluates repository contribution readiness using multi-factor heuristics
+    and AI-assisted architectural reasoning.
+    """
+
+    def __init__(self, api_client: GitHubAPIClient | None = None, enable_ai: bool = True):
+        self.api_client = api_client or GitHubAPIClient()
+        self.own_api_client = api_client is None
+        self.ai_engine = AIIntelligenceEngine() if enable_ai else None
+
+    async def analyze_repository(self, repo_data: dict) -> RepositoryAnalysis:
+        """Analyze a repository dictionary for contribution readiness."""
+        details = await self.api_client.get_repository_details(repo_data)
+        repo = details["repo"]
+        issues = details["issues"]
+        commits = details["commits"]
+        contributors = details["contributors"]
+        community = details["community"]
+
+        analysis = await self._perform_analysis(repo, issues, commits, contributors, community)
+        return analysis
+
+    async def _perform_analysis(
+        self,
+        repo: dict,
+        issues: list[dict],
+        commits: list[dict],
+        contributors: list[dict],
+        community: dict,
+    ) -> RepositoryAnalysis:
+        owner = repo["owner"]["login"]
+        name = repo["name"]
+        full_name = repo.get("full_name", f"{owner}/{name}")
+
+        # Check documentation files
+        community_files = community.get("files", {})
+        has_contributing = bool(community_files.get("contributing"))
+        has_coc = bool(community_files.get("code_of_conduct"))
+        has_issue_template = bool(community_files.get("issue_template"))
+        has_pull_template = bool(community_files.get("pull_request_template"))
+
+        # Fallback to file checks if community profile was incomplete
+        if not has_contributing:
+            has_contributing = await self.api_client.check_file_exists(
+                owner, name, "CONTRIBUTING.md"
+            )
+        if not has_coc:
+            has_coc = await self.api_client.check_file_exists(owner, name, "CODE_OF_CONDUCT.md")
+
+        # Parse dates
+        pushed_at_str = (
+            repo.get("pushed_at") or repo.get("updated_at") or datetime.now(UTC).isoformat()
+        )
         try:
-            # Get detailed repository information
-            details = await self.api_client.get_repository_details(repo_data)
-            repo = details["repo"]
-            issues = details["issues"]
-            commits = details["commits"]
-            contributors = details["contributors"]
-            
-            # Analyze contribution indicators
-            analysis = await self._perform_analysis(repo, issues, commits, contributors)
-            
-            return analysis
-        finally:
-            # Clean up session
-            await self.api_client._close_session()
-    
-    async def _perform_analysis(self, repo: Dict, issues: List, commits: List, contributors: List) -> RepositoryAnalysis:
-        """Perform comprehensive repository analysis"""
-        
-        owner = repo['owner']['login']
-        name = repo['name']
-        
-        # Check for contribution files
-        await self.api_client._ensure_session()
-        has_contributing = await self.api_client.check_file_exists(owner, name, "CONTRIBUTING.md")
-        has_coc = await self.api_client.check_file_exists(owner, name, "CODE_OF_CONDUCT.md")
-        has_issue_template = await self.api_client.check_file_exists(owner, name, ".github/ISSUE_TEMPLATE")
-        has_pr_template = await self.api_client.check_file_exists(owner, name, ".github/PULL_REQUEST_TEMPLATE.md")
-        
-        # Analyze issues
-        good_first_issues = self._count_labeled_issues(issues, ["good-first-issue", "good first issue"])
-        help_wanted_issues = self._count_labeled_issues(issues, ["help-wanted", "help wanted"])
-        
-        # Calculate contribution score
-        contribution_score = self._calculate_contribution_score(
-            repo, issues, commits, contributors, has_contributing, 
-            good_first_issues, help_wanted_issues
-        )
-        
-        # Determine contribution status
-        contribution_status = self._determine_contribution_status(
-            repo, contribution_score, commits, has_contributing
-        )
-        
-        # Analyze tech stack
-        tech_stack = self._analyze_tech_stack(repo)
-        
-        # Estimate response time based on recent activity
-        response_time = self._estimate_response_time(commits, issues)
-        
-        # Assess setup complexity
-        setup_complexity = self._assess_setup_complexity(repo, tech_stack)
-        
-        # Analyze maintainer activity
-        maintainer_activity = self._analyze_maintainer_activity(commits, contributors)
-        
-        return RepositoryAnalysis(
-            name=repo.get('name', ''),
-            full_name=repo.get('full_name', ''),
-            description=repo.get('description', ''),
-            url=repo.get('html_url', ''),
-            stars=repo.get('stargazers_count', 0),
-            forks=repo.get('forks_count', 0),
-            language=repo.get('language', 'Unknown'),
-            license=repo.get('license', {}).get('name') if repo.get('license') else None,
-            contribution_status=contribution_status,
-            contribution_score=contribution_score,
-            last_activity=self._parse_datetime(repo.get('updated_at', '')),
-            open_issues=repo.get('open_issues_count', 0),
-            good_first_issues=good_first_issues,
-            help_wanted_issues=help_wanted_issues,
-            recent_commits=len(commits),
+            last_activity = datetime.fromisoformat(pushed_at_str.replace("Z", "+00:00"))
+        except Exception:
+            last_activity = datetime.now(UTC)
+
+        # Activity calculations
+        now = datetime.now(UTC)
+        days_since_activity = (now - last_activity).days
+
+        # Issue mining
+        good_first_issues = []
+        help_wanted_issues = []
+        for issue in issues:
+            label_names = [lbl.get("name", "").lower() for lbl in issue.get("labels", [])]
+            if any("good" in l and "first" in l for l in label_names) or "beginner" in label_names:
+                good_first_issues.append(issue)
+            elif (
+                any("help" in l and "wanted" in l for l in label_names)
+                or "up-for-grabs" in label_names
+            ):
+                help_wanted_issues.append(issue)
+
+        # Calculate multi-factor contribution score
+        score = 0.0
+        # 1. Community & Documentation Standards (Max 30)
+        if has_contributing:
+            score += 15.0
+        if has_coc:
+            score += 5.0
+        if has_issue_template:
+            score += 5.0
+        if has_pull_template:
+            score += 5.0
+
+        # 2. Issue Landscape & Opportunity (Max 25)
+        if good_first_issues:
+            score += min(len(good_first_issues) * 4.0, 15.0)
+        if help_wanted_issues:
+            score += min(len(help_wanted_issues) * 2.5, 10.0)
+
+        # 3. Maintainer Velocity & Commits (Max 25)
+        recent_commits_count = len(commits)
+        if days_since_activity <= 7:
+            score += 12.0
+        elif days_since_activity <= 30:
+            score += 8.0
+        elif days_since_activity <= 90:
+            score += 4.0
+
+        if recent_commits_count >= 15:
+            score += 13.0
+        elif recent_commits_count >= 5:
+            score += 8.0
+        elif recent_commits_count >= 1:
+            score += 4.0
+
+        # 4. Repo Health & License (Max 20)
+        if repo.get("license") and repo["license"].get("spdx_id") not in ("NOASSERTION", None):
+            score += 8.0
+        if len(contributors) >= 5:
+            score += 7.0
+        if repo.get("open_issues_count", 0) > 0:
+            score += 5.0
+
+        score = max(0.0, min(100.0, round(score, 1)))
+
+        # Status classification
+        is_archived = repo.get("archived", False)
+        if is_archived or days_since_activity > 180:
+            status = ContributionStatus.ARCHIVED_INACTIVE
+        elif score >= 70.0 and (has_contributing or good_first_issues):
+            status = ContributionStatus.ACTIVELY_ACCEPTING
+        elif score >= 45.0:
+            status = ContributionStatus.LIMITED_SCOPE
+        else:
+            status = ContributionStatus.NOT_ACCEPTING
+
+        # Maintainer response velocity
+        if days_since_activity <= 3:
+            response_time = "Within 24-48 hours"
+            maintainer_activity = "Very High"
+        elif days_since_activity <= 14:
+            response_time = "Within 3-5 days"
+            maintainer_activity = "High"
+        elif days_since_activity <= 45:
+            response_time = "Within 1-2 weeks"
+            maintainer_activity = "Moderate"
+        else:
+            response_time = "Slow / Stale (> 1 month)"
+            maintainer_activity = "Low"
+
+        # Setup complexity estimation based on language and size
+        lang = repo.get("language") or "General"
+        size_kb = repo.get("size", 0)
+        if size_kb > 200000 or lang in ("C++", "Rust", "Java"):
+            setup_complexity = "Complex (Enterprise Monorepo)"
+        elif size_kb > 40000 or lang in ("TypeScript", "Go", "Python"):
+            setup_complexity = "Medium (Standard Dependencies)"
+        else:
+            setup_complexity = "Low (Quick Local Setup)"
+
+        # Tech stack detection
+        topics = repo.get("topics", [])
+        tech_stack = [lang] if lang != "General" else []
+        tech_stack.extend([t for t in topics if t.lower() not in [lang.lower()]])
+
+        # Format mined issue opportunities
+        opportunities = []
+        for raw_issue in (good_first_issues + help_wanted_issues)[:5]:
+            lbls = [l.get("name", "") for l in raw_issue.get("labels", [])]
+            is_beginner = any("good" in l.lower() or "beginner" in l.lower() for l in lbls)
+            diff = (
+                ContributionDifficulty.BEGINNER
+                if is_beginner
+                else ContributionDifficulty.INTERMEDIATE
+            )
+
+            opp = IssueOpportunity(
+                number=raw_issue["number"],
+                title=raw_issue["title"],
+                url=raw_issue["html_url"],
+                labels=lbls,
+                created_at=raw_issue.get("created_at", ""),
+                comments_count=raw_issue.get("comments", 0),
+                difficulty=diff,
+            )
+            opportunities.append(opp)
+
+        analysis = RepositoryAnalysis(
+            name=name,
+            full_name=full_name,
+            description=repo.get("description") or "No description provided",
+            url=repo.get("html_url", f"https://github.com/{full_name}"),
+            stars=repo.get("stargazers_count", 0),
+            forks=repo.get("forks_count", 0),
+            language=lang,
+            license=repo.get("license", {}).get("spdx_id") if repo.get("license") else None,
+            contribution_status=status,
+            contribution_score=score,
+            last_activity=last_activity,
+            open_issues=repo.get("open_issues_count", 0),
+            good_first_issues=len(good_first_issues),
+            help_wanted_issues=len(help_wanted_issues),
+            recent_commits=recent_commits_count,
             contributors_count=len(contributors),
             has_contributing_guide=has_contributing,
             has_code_of_conduct=has_coc,
             has_issue_templates=has_issue_template,
-            has_pr_templates=has_pr_template,
+            has_pr_templates=has_pull_template,
             response_time_estimate=response_time,
-            tech_stack=tech_stack,
+            tech_stack=tech_stack[:8],
             setup_complexity=setup_complexity,
-            maintainer_activity=maintainer_activity
+            maintainer_activity=maintainer_activity,
+            opportunities=opportunities,
         )
-    
-    def _count_labeled_issues(self, issues: List, labels: List[str]) -> int:
-        """Count issues with specific labels"""
-        count = 0
-        for issue in issues:
-            issue_labels = [label.get('name', '').lower() for label in issue.get('labels', [])]
-            if any(label.lower() in issue_labels for label in labels):
-                count += 1
-        return count
-    
-    def _calculate_contribution_score(self, repo: Dict, issues: List, commits: List, 
-                                    contributors: List, has_contributing: bool,
-                                    good_first_issues: int, help_wanted_issues: int) -> float:
-        """Calculate a contribution readiness score (0-100)"""
-        score = 0
-        
-        # Base score for being public and not archived
-        if not repo.get('archived', True):
-            score += 20
-        
-        # Documentation score
-        if has_contributing:
-            score += 15
-        if repo.get('description'):
-            score += 5
-        if repo.get('homepage'):
-            score += 5
-        
-        # Activity score
-        if len(commits) > 10:
-            score += 15
-        elif len(commits) > 5:
-            score += 10
-        elif len(commits) > 0:
-            score += 5
-        
-        # Community score
-        if good_first_issues > 0:
-            score += 10
-        if help_wanted_issues > 0:
-            score += 10
-        if len(contributors) > 5:
-            score += 10
-        elif len(contributors) > 1:
-            score += 5
-        
-        # Issue responsiveness
-        if repo.get('open_issues_count', 0) < 50:
-            score += 10
-        elif repo.get('open_issues_count', 0) < 100:
-            score += 5
-        
-        return min(score, 100)
-    
-    def _determine_contribution_status(self, repo: Dict, score: float, 
-                                     commits: List, has_contributing: bool) -> ContributionStatus:
-        """Determine the contribution status based on analysis"""
-        
-        if repo.get('archived', False):
-            return ContributionStatus.ARCHIVED_INACTIVE
-        
-        if len(commits) == 0:
-            return ContributionStatus.ARCHIVED_INACTIVE
-        
-        if score >= 70:
-            return ContributionStatus.ACTIVELY_ACCEPTING
-        elif score >= 40:
-            return ContributionStatus.LIMITED_SCOPE
-        else:
-            return ContributionStatus.NOT_ACCEPTING
-    
-    def _analyze_tech_stack(self, repo: Dict) -> List[str]:
-        """Analyze the technology stack of the repository"""
-        tech_stack = []
-        
-        language = repo.get('language')
-        if language:
-            tech_stack.append(language)
-        
-        # Common frameworks and tools based on language
-        language_frameworks = {
-            'JavaScript': ['Node.js', 'React', 'Vue.js', 'Angular'],
-            'Python': ['Django', 'Flask', 'FastAPI', 'Pandas'],
-            'Java': ['Spring', 'Maven', 'Gradle'],
-            'C#': ['.NET', 'ASP.NET'],
-            'Go': ['Gin', 'Echo'],
-            'Rust': ['Cargo', 'Actix'],
-            'TypeScript': ['Angular', 'React', 'Node.js']
-        }
-        
-        if language in language_frameworks:
-            # This would ideally check package files or README for actual frameworks
-            tech_stack.extend(language_frameworks[language][:2])  # Add first 2 as examples
-        
-        return tech_stack
-    
-    def _estimate_response_time(self, commits: List, issues: List) -> str:
-        """Estimate response time based on activity"""
-        if len(commits) > 20:
-            return "Within 1-3 days"
-        elif len(commits) > 10:
-            return "Within 1 week"
-        elif len(commits) > 0:
-            return "Within 2-4 weeks"
-        else:
-            return "Slow or no response"
-    
-    def _assess_setup_complexity(self, repo: Dict, tech_stack: List[str]) -> str:
-        """Assess the complexity of setting up the project"""
-        complexity_indicators = 0
-        
-        # Multiple languages/frameworks increase complexity
-        if len(tech_stack) > 3:
-            complexity_indicators += 1
-        
-        # Large repositories are typically more complex
-        if repo.get('size', 0) > 10000:  # KB
-            complexity_indicators += 1
-        
-        # Many dependencies (estimated)
-        if repo.get('language') in ['JavaScript', 'Python', 'Java']:
-            complexity_indicators += 1
-        
-        if complexity_indicators == 0:
-            return "Simple"
-        elif complexity_indicators <= 2:
-            return "Moderate"
-        else:
-            return "Complex"
-    
-    def _analyze_maintainer_activity(self, commits: List, contributors: List) -> str:
-        """Analyze maintainer activity level"""
-        if len(commits) > 30:
-            return "Very Active"
-        elif len(commits) > 15:
-            return "Active"
-        elif len(commits) > 5:
-            return "Moderately Active"
-        elif len(commits) > 0:
-            return "Low Activity"
-        else:
-            return "Inactive"
-    
-    def _parse_datetime(self, date_str: str) -> datetime:
-        """Safely parse datetime string"""
-        try:
-            if date_str:
-                return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            else:
-                return datetime.now()
-        except ValueError:
-            return datetime.now()
+
+        # AI Insights generation
+        if self.ai_engine:
+            try:
+                analysis.ai_insights = await self.ai_engine.generate_repository_insights(analysis)
+            except Exception as e:
+                logger.warning(f"Failed to generate AI insights for {full_name}: {e}")
+
+        return analysis

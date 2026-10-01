@@ -1,76 +1,145 @@
-from typing import List, Dict
-from datetime import datetime
 import json
-from jinja2 import Template
-import sys
-import os
+from datetime import datetime
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from github_agent.analyzer import RepositoryAnalysis, ContributionStatus
+from jinja2 import Template
+
+from github_agent.models import ContributionStatus, RepositoryAnalysis
+
 
 class ReportGenerator:
+    """
+    Generates multi-format reports (HTML, Markdown, JSON)
+    for analyzed repositories and contribution opportunities.
+    """
+
     def __init__(self):
         self.template = self._get_report_template()
-    
-    def generate_reports(self, analyses: List[RepositoryAnalysis]) -> Dict:
-        """Generate comprehensive reports for all analyzed repositories"""
-        
-        # Categorize repositories
+
+    def generate_reports(self, analyses: list[RepositoryAnalysis]) -> dict:
+        """Generate comprehensive reports for all analyzed repositories."""
         categorized = self._categorize_repositories(analyses)
-        
-        # Generate summary report
         summary_report = self._generate_summary_report(analyses, categorized)
-        
-        # Generate individual reports
+
         individual_reports = []
         for analysis in analyses:
             individual_report = self._generate_individual_report(analysis)
             individual_reports.append(individual_report)
-        
+
+        markdown_report = self.generate_markdown_report(analyses)
+
         return {
             "summary": summary_report,
             "individual_reports": individual_reports,
+            "markdown_summary": markdown_report,
             "total_repositories": len(analyses),
-            "generated_at": datetime.now().isoformat()
+            "generated_at": datetime.now().isoformat(),
         }
-    
-    def _categorize_repositories(self, analyses: List[RepositoryAnalysis]) -> Dict:
-        """Categorize repositories by contribution status"""
+
+    def generate_markdown_report(self, analyses: list[RepositoryAnalysis]) -> str:
+        """Generate a clean, high-signal Markdown report."""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        total = len(analyses)
+        categorized = self._categorize_repositories(analyses)
+
+        active = len(categorized["actively_accepting"])
+        limited = len(categorized["limited_scope"])
+        stale = len(categorized["not_accepting"]) + len(categorized["archived_inactive"])
+
+        md = [
+            "# 🐙 GitHub Agent AI: Repository Intelligence & Contribution Report",
+            f"**Generated:** {now} | **Total Evaluated:** {total}\n",
+            "## 📊 Executive Overview",
+            "| Contribution Status | Repositories | Distribution |",
+            "|---|---|---|",
+            f"| 🟢 **Actively Accepting** | {active} | {(active / total * 100) if total else 0:.1f}% |",
+            f"| 🟡 **Limited Scope** | {limited} | {(limited / total * 100) if total else 0:.1f}% |",
+            f"| 🔴 **Not Accepting / Stale** | {stale} | {(stale / total * 100) if total else 0:.1f}% |\n",
+            "---",
+            "## 🏆 Top Contribution Opportunities\n",
+        ]
+
+        # Top repos sorted by score
+        top_repos = sorted(analyses, key=lambda x: x.contribution_score, reverse=True)
+        for idx, repo in enumerate(top_repos, 1):
+            badge = (
+                "🟢"
+                if repo.contribution_status == ContributionStatus.ACTIVELY_ACCEPTING
+                else "🟡"
+                if repo.contribution_status == ContributionStatus.LIMITED_SCOPE
+                else "🔴"
+            )
+            md.append(f"### {idx}. [{repo.full_name}]({repo.url}) {badge}")
+            md.append(
+                f"**Score:** `{repo.contribution_score}/100` | **Status:** {repo.contribution_status.value.replace('_', ' ').title()} | **Stars:** ⭐ {repo.stars:,} | **Language:** `{repo.language}`"
+            )
+            md.append(f"> {repo.description}\n")
+
+            if repo.ai_insights:
+                md.append(f"**🤖 Architectural & Contribution Insights:**\n{repo.ai_insights}\n")
+
+            if repo.opportunities:
+                md.append("**🎯 Actionable Entrypoint Issues:**")
+                for opp in repo.opportunities:
+                    md.append(
+                        f"- [#{opp.number} {opp.title}]({opp.url}) (`{opp.difficulty.value}`)"
+                    )
+                md.append("")
+
+            md.append("**Setup & Maintainer Telemetry:**")
+            md.append(
+                f"- Maintainer Velocity: {repo.maintainer_activity} ({repo.response_time_estimate})"
+            )
+            md.append(f"- Commits (30d): {repo.recent_commits} | Open Issues: {repo.open_issues}")
+            md.append(
+                f"- Documentation: CONTRIBUTING={repo.has_contributing_guide}, CodeOfConduct={repo.has_code_of_conduct}"
+            )
+            md.append("\n---\n")
+
+        return "\n".join(md)
+
+    def generate_json_report(self, analyses: list[RepositoryAnalysis]) -> str:
+        """Generate structured JSON report."""
+        data = {
+            "meta": {
+                "generated_at": datetime.now().isoformat(),
+                "total_repositories": len(analyses),
+            },
+            "repositories": [a.model_dump(mode="json") for a in analyses],
+        }
+        return json.dumps(data, indent=2)
+
+    def _categorize_repositories(self, analyses: list[RepositoryAnalysis]) -> dict:
         categorized = {
             "actively_accepting": [],
             "limited_scope": [],
             "not_accepting": [],
-            "archived_inactive": []
+            "archived_inactive": [],
         }
-        
         for analysis in analyses:
             status_key = analysis.contribution_status.value
-            categorized[status_key].append(analysis)
-        
+            if status_key in categorized:
+                categorized[status_key].append(analysis)
+            else:
+                categorized["not_accepting"].append(analysis)
         return categorized
-    
-    def _generate_summary_report(self, analyses: List[RepositoryAnalysis], categorized: Dict) -> str:
-        """Generate a summary report of all repositories"""
-        
-        # Calculate statistics
+
+    def _generate_summary_report(
+        self, analyses: list[RepositoryAnalysis], categorized: dict
+    ) -> str:
         total = len(analyses)
         actively_accepting = len(categorized["actively_accepting"])
         limited_scope = len(categorized["limited_scope"])
         not_accepting = len(categorized["not_accepting"])
         archived = len(categorized["archived_inactive"])
-        
-        # Top repositories by contribution score
+
         top_repos = sorted(analyses, key=lambda x: x.contribution_score, reverse=True)[:10]
-        
-        # Most popular languages
+
         languages = {}
         for analysis in analyses:
             lang = analysis.language
             languages[lang] = languages.get(lang, 0) + 1
-        
         popular_languages = sorted(languages.items(), key=lambda x: x[1], reverse=True)[:5]
-        
+
         summary_data = {
             "total_repositories": total,
             "actively_accepting": actively_accepting,
@@ -83,260 +152,143 @@ class ReportGenerator:
             "archived_pct": (archived / total * 100) if total > 0 else 0,
             "top_repositories": top_repos,
             "popular_languages": popular_languages,
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-        
         return self._render_summary_template(summary_data)
-    
-    def _generate_individual_report(self, analysis: RepositoryAnalysis) -> Dict:
-        """Generate a detailed report for a single repository"""
-        
-        # Contribution recommendations
+
+    def _generate_individual_report(self, analysis: RepositoryAnalysis) -> dict:
         recommendations = self._generate_recommendations(analysis)
-        
-        # Getting started guide
         getting_started = self._generate_getting_started_guide(analysis)
-        
+
         report_data = {
             "repository": analysis,
             "recommendations": recommendations,
             "getting_started": getting_started,
             "contribution_indicators": self._get_contribution_indicators(analysis),
             "technical_details": self._get_technical_details(analysis),
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
-        
+
         return {
             "repository_name": analysis.full_name,
-            "html_content": self._render_individual_template(report_data),
-            "data": report_data
+            "score": analysis.contribution_score,
+            "status": analysis.contribution_status.value,
+            "html_content": self.template.render(**report_data),
+            "data": report_data,
         }
-    
-    def _generate_recommendations(self, analysis: RepositoryAnalysis) -> List[str]:
-        """Generate recommendations based on repository analysis"""
+
+    def _generate_recommendations(self, analysis: RepositoryAnalysis) -> list[str]:
         recommendations = []
-        
         if analysis.contribution_status == ContributionStatus.ACTIVELY_ACCEPTING:
-            recommendations.append("✅ This repository is actively accepting contributions!")
-            
-            if analysis.good_first_issues > 0:
-                recommendations.append(f"🎯 Start with {analysis.good_first_issues} 'good-first-issue' labeled issues")
-            
-            if analysis.help_wanted_issues > 0:
-                recommendations.append(f"🆘 {analysis.help_wanted_issues} issues are specifically seeking help")
-            
+            recommendations.append(
+                "High-probability contribution opportunity. Check labeled good-first-issues."
+            )
             if analysis.has_contributing_guide:
-                recommendations.append("📖 Read the CONTRIBUTING.md file before starting")
-            else:
-                recommendations.append("⚠️ No contribution guide found - reach out to maintainers first")
-        
+                recommendations.append(
+                    "Follow the structured CONTRIBUTING.md guidelines carefully."
+                )
+            recommendations.append(
+                f"Maintainers respond {analysis.response_time_estimate.lower()}. Submit small, focused PRs."
+            )
         elif analysis.contribution_status == ContributionStatus.LIMITED_SCOPE:
-            recommendations.append("⚠️ This repository has limited contribution opportunities")
-            recommendations.append("💡 Consider small bug fixes or documentation improvements")
-            
-        elif analysis.contribution_status == ContributionStatus.NOT_ACCEPTING:
-            recommendations.append("❌ This repository doesn't appear to be accepting contributions")
-            recommendations.append("👀 Consider forking for your own modifications")
-            
-        else:  # ARCHIVED_INACTIVE
-            recommendations.append("🗄️ This repository is archived or inactive")
-            recommendations.append("🔍 Look for active forks or alternatives")
-        
-        # Technical recommendations
-        if analysis.setup_complexity == "Complex":
-            recommendations.append("🔧 Complex setup - allocate extra time for environment configuration")
-        
-        if analysis.response_time_estimate == "Slow or no response":
-            recommendations.append("⏰ Maintainers may be slow to respond - be patient")
-        
-        return recommendations
-    
-    def _generate_getting_started_guide(self, analysis: RepositoryAnalysis) -> List[str]:
-        """Generate a getting started guide"""
-        steps = [
-            f"1. Fork the repository: {analysis.url}",
-            "2. Clone your fork locally",
-            f"3. Set up the {analysis.language} development environment"
-        ]
-        
-        if analysis.tech_stack:
-            tech_list = ", ".join(analysis.tech_stack)
-            steps.append(f"4. Install dependencies for: {tech_list}")
-        
-        if analysis.has_contributing_guide:
-            steps.append("5. Read CONTRIBUTING.md for specific guidelines")
-        
-        if analysis.good_first_issues > 0:
-            steps.append("6. Browse 'good-first-issue' labeled issues")
+            recommendations.append(
+                "Moderate contribution barrier. Propose improvements in discussion threads first."
+            )
+            recommendations.append(
+                "Look for documentation, typos, or minor bug fixes as an initial entrypoint."
+            )
         else:
-            steps.append("6. Look for open issues or documentation improvements")
-        
-        steps.extend([
-            "7. Create a feature branch for your changes",
-            "8. Make your changes and add tests if applicable",
-            "9. Submit a pull request with a clear description"
-        ])
-        
-        return steps
-    
-    def _get_contribution_indicators(self, analysis: RepositoryAnalysis) -> Dict:
-        """Get contribution indicators summary"""
+            recommendations.append(
+                "Low contribution velocity. Project may be feature-complete or maintainer-constrained."
+            )
+            recommendations.append(
+                "Avoid large unsolicited PRs; comment on existing open issues to test responsiveness."
+            )
+        return recommendations
+
+    def _generate_getting_started_guide(self, analysis: RepositoryAnalysis) -> dict:
         return {
-            "contribution_score": analysis.contribution_score,
-            "status": analysis.contribution_status.value.replace("_", " ").title(),
-            "has_contributing_guide": analysis.has_contributing_guide,
-            "has_code_of_conduct": analysis.has_code_of_conduct,
-            "has_issue_templates": analysis.has_issue_templates,
-            "has_pr_templates": analysis.has_pr_templates,
+            "step_1": f"Fork and clone the repository: `git clone {analysis.url}.git`",
+            "step_2": f"Set up local runtime ({analysis.language}) and install project dependencies.",
+            "step_3": "Review open issue discussions and comment before claiming a task.",
+            "step_4": "Create a scoped topic branch, write unit tests, and submit a PR referencing the issue.",
+        }
+
+    def _get_contribution_indicators(self, analysis: RepositoryAnalysis) -> dict:
+        return {
+            "has_contributing": analysis.has_contributing_guide,
+            "has_coc": analysis.has_code_of_conduct,
+            "has_issue_template": analysis.has_issue_templates,
+            "has_pr_template": analysis.has_pr_templates,
             "good_first_issues": analysis.good_first_issues,
             "help_wanted_issues": analysis.help_wanted_issues,
-            "response_time": analysis.response_time_estimate
         }
-    
-    def _get_technical_details(self, analysis: RepositoryAnalysis) -> Dict:
-        """Get technical details summary"""
+
+    def _get_technical_details(self, analysis: RepositoryAnalysis) -> dict:
         return {
             "language": analysis.language,
             "tech_stack": analysis.tech_stack,
-            "setup_complexity": analysis.setup_complexity,
-            "license": analysis.license,
             "stars": analysis.stars,
             "forks": analysis.forks,
-            "contributors": analysis.contributors_count,
+            "open_issues": analysis.open_issues,
             "recent_commits": analysis.recent_commits,
-            "maintainer_activity": analysis.maintainer_activity
+            "setup_complexity": analysis.setup_complexity,
         }
-    
-    def _get_report_template(self) -> str:
-        """Get the HTML template for reports"""
-        return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>GitHub Repository Analysis Report</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
-        .header { background: #f4f4f4; padding: 20px; border-radius: 5px; }
-        .status-badge { padding: 5px 10px; border-radius: 3px; color: white; font-weight: bold; }
-        .actively-accepting { background: #28a745; }
-        .limited-scope { background: #ffc107; color: black; }
-        .not-accepting { background: #dc3545; }
-        .archived-inactive { background: #6c757d; }
-        .section { margin: 20px 0; padding: 15px; border-left: 4px solid #007bff; }
-        .metric { display: inline-block; margin: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px; }
-        .recommendation { margin: 5px 0; padding: 10px; background: #e9ecef; border-radius: 3px; }
-        .step { margin: 5px 0; padding: 8px; background: #f1f3f4; border-radius: 3px; }
-        .tech-tag { display: inline-block; background: #007bff; color: white; padding: 3px 8px; margin: 2px; border-radius: 3px; font-size: 0.8em; }
-    </style>
-</head>
-<body>
-    {{ content }}
-</body>
-</html>
-        """
-    
-    def _render_summary_template(self, data: Dict) -> str:
-        """Render summary report template"""
-        content = f"""
-        <div class="header">
-            <h1>🔍 GitHub Repository Analysis Summary</h1>
-            <p><strong>Generated:</strong> {data['generated_at']}</p>
-            <p><strong>Total Repositories Analyzed:</strong> {data['total_repositories']}</p>
-        </div>
-        
-        <div class="section">
-            <h2>📊 Contribution Status Distribution</h2>
-            <div class="metric">
-                <strong>Actively Accepting:</strong> {data['actively_accepting']} ({data['actively_accepting_pct']:.1f}%)
+
+    def _render_summary_template(self, data: dict) -> str:
+        template_str = """
+        <div class="summary-report">
+            <h2>GitHub Repository Contribution Intelligence Summary</h2>
+            <p><strong>Generated At:</strong> {{ generated_at }}</p>
+            <p><strong>Total Repositories Evaluated:</strong> {{ total_repositories }}</p>
+            
+            <div class="metrics-grid" style="display: flex; gap: 15px; margin: 20px 0;">
+                <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; flex: 1;">
+                    <h3 style="color: #2e7d32; margin: 0;">Actively Accepting</h3>
+                    <p style="font-size: 24px; font-weight: bold; margin: 5px 0;">{{ actively_accepting }} ({{ "%.1f"|format(actively_accepting_pct) }}%)</p>
+                </div>
+                <div style="background: #fff8e1; padding: 15px; border-radius: 8px; flex: 1;">
+                    <h3 style="color: #f57f17; margin: 0;">Limited Scope</h3>
+                    <p style="font-size: 24px; font-weight: bold; margin: 5px 0;">{{ limited_scope }} ({{ "%.1f"|format(limited_scope_pct) }}%)</p>
+                </div>
+                <div style="background: #ffebee; padding: 15px; border-radius: 8px; flex: 1;">
+                    <h3 style="color: #c62828; margin: 0;">Not Accepting / Stale</h3>
+                    <p style="font-size: 24px; font-weight: bold; margin: 5px 0;">{{ not_accepting + archived }} ({{ "%.1f"|format(not_accepting_pct + archived_pct) }}%)</p>
+                </div>
             </div>
-            <div class="metric">
-                <strong>Limited Scope:</strong> {data['limited_scope']} ({data['limited_scope_pct']:.1f}%)
-            </div>
-            <div class="metric">
-                <strong>Not Accepting:</strong> {data['not_accepting']} ({data['not_accepting_pct']:.1f}%)
-            </div>
-            <div class="metric">
-                <strong>Archived/Inactive:</strong> {data['archived']} ({data['archived_pct']:.1f}%)
-            </div>
-        </div>
-        
-        <div class="section">
-            <h2>⭐ Top Repositories by Contribution Score</h2>
-            {''.join([f'<div class="recommendation"><strong>{repo.full_name}</strong> - Score: {repo.contribution_score}/100 ({repo.contribution_status.value.replace("_", " ").title()})</div>' for repo in data['top_repositories']])}
-        </div>
-        
-        <div class="section">
-            <h2>💻 Popular Programming Languages</h2>
-            {''.join([f'<span class="tech-tag">{lang} ({count})</span>' for lang, count in data['popular_languages']])}
         </div>
         """
-        
-        template = Template(self._get_report_template())
-        return template.render(content=content)
-    
-    def _render_individual_template(self, data: Dict) -> str:
-        """Render individual repository report template"""
-        repo = data['repository']
-        
-        status_class = repo.contribution_status.value.replace("_", "-")
-        
-        content = f"""
-        <div class="header">
-            <h1>📁 {repo.full_name}</h1>
-            <p>{repo.description}</p>
-            <span class="status-badge {status_class}">
-                {repo.contribution_status.value.replace("_", " ").title()}
-            </span>
-            <p><strong>Contribution Score:</strong> {repo.contribution_score}/100</p>
-        </div>
-        
-        <div class="section">
-            <h2>📈 Repository Metrics</h2>
-            <div class="metric"><strong>Stars:</strong> {repo.stars:,}</div>
-            <div class="metric"><strong>Forks:</strong> {repo.forks:,}</div>
-            <div class="metric"><strong>Open Issues:</strong> {repo.open_issues}</div>
-            <div class="metric"><strong>Contributors:</strong> {repo.contributors_count}</div>
-            <div class="metric"><strong>Recent Commits:</strong> {repo.recent_commits}</div>
-        </div>
-        
-        <div class="section">
-            <h2>🔧 Technical Details</h2>
-            <div class="metric"><strong>Language:</strong> {repo.language}</div>
-            <div class="metric"><strong>License:</strong> {repo.license or 'Not specified'}</div>
-            <div class="metric"><strong>Setup Complexity:</strong> {repo.setup_complexity}</div>
-            <div class="metric"><strong>Maintainer Activity:</strong> {repo.maintainer_activity}</div>
-            <div>
-                <strong>Tech Stack:</strong><br>
-                {''.join([f'<span class="tech-tag">{tech}</span>' for tech in repo.tech_stack])}
+        return Template(template_str).render(**data)
+
+    def _get_report_template(self) -> Template:
+        template_str = """
+        <div class="repo-card" style="border: 1px solid #e1e4e8; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;"><a href="{{ repository.url }}" target="_blank" style="color: #0366d6; text-decoration: none;">{{ repository.full_name }}</a></h3>
+                <span style="background: #24292e; color: #fff; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 14px;">Score: {{ repository.contribution_score }}/100</span>
+            </div>
+            <p style="color: #586069; margin: 10px 0;">{{ repository.description }}</p>
+            <div style="margin: 15px 0; font-size: 14px;">
+                <span>⭐ {{ repository.stars }} stars</span> | 
+                <span>🍴 {{ repository.forks }} forks</span> | 
+                <span>💻 {{ repository.language }}</span> | 
+                <span>⏱️ Maintainer Velocity: {{ repository.maintainer_activity }}</span>
+            </div>
+            {% if repository.ai_insights %}
+            <div style="background: #f6f8fa; border-left: 4px solid #0366d6; padding: 12px; border-radius: 4px; margin: 15px 0;">
+                <strong>🤖 Architectural & Contribution Insights:</strong>
+                <p style="white-space: pre-line; margin: 5px 0 0 0;">{{ repository.ai_insights }}</p>
+            </div>
+            {% endif %}
+            <div style="margin-top: 15px;">
+                <strong>Getting Started:</strong>
+                <ol style="margin: 5px 0 0 20px; padding: 0;">
+                    <li>{{ getting_started.step_1 }}</li>
+                    <li>{{ getting_started.step_2 }}</li>
+                    <li>{{ getting_started.step_3 }}</li>
+                    <li>{{ getting_started.step_4 }}</li>
+                </ol>
             </div>
         </div>
-        
-        <div class="section">
-            <h2>🎯 Contribution Opportunities</h2>
-            <div class="metric"><strong>Good First Issues:</strong> {repo.good_first_issues}</div>
-            <div class="metric"><strong>Help Wanted Issues:</strong> {repo.help_wanted_issues}</div>
-            <div class="metric"><strong>Expected Response Time:</strong> {repo.response_time_estimate}</div>
-            <div class="metric"><strong>Has Contributing Guide:</strong> {'✅' if repo.has_contributing_guide else '❌'}</div>
-            <div class="metric"><strong>Has Code of Conduct:</strong> {'✅' if repo.has_code_of_conduct else '❌'}</div>
-        </div>
-        
-        <div class="section">
-            <h2>💡 Recommendations</h2>
-            {''.join([f'<div class="recommendation">{rec}</div>' for rec in data['recommendations']])}
-        </div>
-        
-        <div class="section">
-            <h2>🚀 Getting Started</h2>
-            {''.join([f'<div class="step">{step}</div>' for step in data['getting_started']])}
-        </div>
-        
-        <div class="section">
-            <h2>🔗 Links</h2>
-            <p><a href="{repo.url}" target="_blank">Repository URL</a></p>
-            <p><a href="{repo.url}/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22" target="_blank">Good First Issues</a></p>
-            <p><a href="{repo.url}/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22" target="_blank">Help Wanted Issues</a></p>
-        </div>
         """
-        
-        template = Template(self._get_report_template())
-        return template.render(content=content)
+        return Template(template_str)
